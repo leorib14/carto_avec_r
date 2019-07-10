@@ -1,0 +1,1113 @@
+--- 
+title: "Cartographie avec R"
+author: "Timothée Giraud & Hugues Pécout"
+date: "`r Sys.Date()`"
+bibliography:
+- book.bib
+- packages.bib
+description: Matériel pour le cours de cartographie avec R
+documentclass: book
+link-citations: yes
+site: bookdown::bookdown_site
+biblio-style: apalike
+link-citation: true
+github-repo: rCarto/carto_avec_r
+cover-image: img/cartomix.png
+---
+
+
+
+
+# Introduction {-}
+![](img/cartomix.png)
+
+
+Toute carte est issue d’un processus complexe, de choix, de selections, d’opérations statistiques ou de géotraitements. Certains auteurs énoncent que les cartes sont subjectives [@Brunet87] et d’autres auteurs disent carrément qu'elles mentent [@Monmonier93]. Toute carte résulte des choix de son auteur. Dans une démarche scientifique, ces choix doivent être traçables, partageables et soumis à la discussion scientifique et cela est difficilement faisable quand ces cartes sont réalisées dans un environnement “clic-bouton”.
+
+La réalisation des cartes dans le langage R permet de tracer toutes les opérations nécessaires à une réalisation cartographique de qualité. Réaliser des cartes dans ce langage unique permet, en diffusant le code source en même temps que les cartes, de jouer “cartes sur table”. Cela permet de détailler les choix qui ont été faits et s’exposer à la controverse scientifique. Cela permet aussi de travailler à plusieurs sur une carte, en associant des compétences complémentaires (sémiologie graphique, statistique, géomatique, etc.) et de faciliter la mise à jour de documents déjà réalisés.
+
+
+Ce document se compose de trois parties permettant d'appréhender la création de cartes thématiques avec R. 
+
+- [Les données spatiales](#chapitre1) 
+- [Cartographie thématique](#chapitre2)   
+- [Cartographie thématique avancée](#chapitre3)  
+
+Ce document mobilise un certain nombre de packages dédiés à l'import, la manipulation, la transformation et l'affichage de données spatiales. Les principaux packages sont `sf`, `cartography`, `mapview`, `raster`, `SpatialPosition`, `spatstats` mais d'autres pourront être nécessaires ponctuellement. 
+
+
+
+
+
+
+
+
+
+<!--chapter:end:index.Rmd-->
+
+```{r knitr_init, echo=FALSE, cache=FALSE}
+library(knitr)
+## Global options
+options(max.print="90")
+opts_chunk$set(echo=TRUE,
+               fig.align='center',
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=FALSE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE,
+	             fig.height=4, 
+	             fig.width=4.8)
+opts_knit$set(width=90)
+options(width = 90)
+knit_hooks$set(nm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,0,0))
+  } 
+})
+knit_hooks$set(sm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,1.2,0))
+  } 
+})
+```
+
+# Les données spatiales {#chapitre1}
+
+Il est possible d'importer, de manipuler, de traiter, d'afficher et d'exporter des données spatiales avec R. La grande majorité des opérations de géotraitement sont disponible dans R grace au package `sf`. Il devient alors possible d'utiliser R comme un SIG. 
+
+
+## Le package `sf`
+
+**Historique**  
+Historiquement trois packages permettent d'importer, de manipuler et de transformer les données spatiales :
+
+- Le package `rgdal` qui est une interface entre R et les librairies GDAL ([Geospatial Data Abstraction Library](http://www.gdal.org/){target="_blank"}) et [PROJ4](https://github.com/OSGeo/proj.4){target="_blank"} permet d'importer et d'exporter les données spatiales (les shapefiles par exemple) et aussi de gérer les projections cartographiques  
+- Le package `sp` fournit des classes et methodes pour les données spatiales dans R. C'est grace à ce package que l'on peut afficher des fond de cartes, inspecter une table attributaire etc.  
+- Le package `rgeos` donne accès à la librairie d'opérations spatiales GEOS ([Geometry Engine - Open Source](http://trac.osgeo.org/geos/){target="_blank"}) et rend donc disponible les opérations SIG classiques : calcul de surface ou de périmètre, calcul de distances, aggrégations spatiales, zones tampons, intersections etc.
+
+**La suite**  
+Le package `sf` a été publié fin 2016 par Edzer Pebesma (auteur de `sp`). Son objectif est de combiner dans les fonctionnalités de `sp`, `rgeos` et `rgdal` dans un package unique plus ergonomique. 
+Ce package propose des objets plus simples (suivant le standard simple feature) dont la manipulation est plus aisée. Une attention particulière a été portée à la compatibilité du package avec la syntaxe *pipe* et les opérateurs du `tidyverse`.
+
+
+Aujourd'hui, les principaux développements dans l'écosystème spatial de R se détachent progressivement des 3 anciens (`sp`, `rgdal`, `rgeos`) pour se reposer sur `sf`. 
+Dans ce document nous utiliserons `sf` tant que cela est possible, c'està dire la plupart du temps.
+
+
+
+### Format des objets spatiaux `sf`
+
+```{r, echo = FALSE}
+knitr::include_graphics("img/sf.png")
+```
+
+
+
+Les objets `sf` sont des data.frame dont l'une des colonne contient des géométrie. Cette colonne est de la classe sfc (simple feature column) et chaque individu de la colonne est un sfg (simple feature geometry).   
+Ce format très pratique dans la mesure ou les données et les géométries sont intrinsequement liées dans un même objet. 
+
+
+### Construction d'un objet sf
+
+#### Couche de points
+
+```{r}
+library(sf)
+pt1_sfg <- st_point(c(1,2))
+pt2_sfg <- st_point(c(3,4))
+pt3_sfg <- st_point(c(2,1))
+(pt_sfc <- st_sfc(pt1_sfg,pt2_sfg,pt3_sfg, crs = (4326)))
+
+pt_df <- data.frame(id= c(1,2,3), cat = c("A", "B", "A"), 
+                   var1 = c(10,20,30), var2 = c(2.3,1.9,4))
+(pt_sf <- st_sf(pt_df,geometry = pt_sfc))
+plot(pt_sf)
+
+```
+
+#### Couche de polygones
+
+```{r}
+p1 <- rbind(c(0,0), c(1,0), c(3,2), c(2,4), c(1,4), c(0,0))
+p2 <- rbind(c(3,0), c(4,0), c(4,1), c(3,1), c(3,0))
+p3 <- rbind(c(3,3), c(4,2), c(4,3), c(3,3))
+pol1_sfg <-st_polygon(list(p1))
+pol2_sfg <-st_polygon(list(p2))
+pol3_sfg <-st_polygon(list(p3))
+(pol_sfc <- st_sfc(pol1_sfg, pol2_sfg, pol3_sfg, crs = 4326))
+pol_df <- data.frame(id= c(1,2,3), cat = c("A", "B", "A"), 
+                   var1 = c(10,20,30), var2 = c(2.3,1.9,4))
+(pol_sf <- st_sf(pol_df,geometry = pol_sfc))
+plot(pol_sf)
+
+```
+
+
+#### Couche de linestring
+```{r}
+p1 <- rbind(c(0,0), c(1,0), c(3,2), c(2,4), c(1,4))
+p2 <- rbind(c(3,0), c(4,0), c(4,1), c(3,1))
+p3 <- rbind(c(3,3), c(4,2), c(4,3))
+ls1_sfg <-st_linestring(p1)
+ls2_sfg <-st_linestring(p2)
+ls3_sfg <-st_linestring(p3)
+(ls_sfc <- st_sfc(ls1_sfg, ls2_sfg, ls3_sfg, crs = 4326))
+ls_df <- data.frame(id= c(1,2,3), cat = c("A", "B", "A"), 
+                   var1 = c(10,20,30), var2 = c(2.3,1.9,4))
+(ls_sf <- st_sf(ls_df,geometry = ls_sfc))
+plot(ls_sf)
+
+```
+
+
+### Import / Export
+
+```{r import}
+library(sf)
+mtq <- st_read("data/martinique.shp", quiet=TRUE)
+```
+
+```{r export}
+st_write(obj = mtq, dsn = "data/mtq.gpkg", layer = "mtq", delete_layer = TRUE)
+st_write(obj = mtq, "data/mtq.shp", delete_layer = T)
+```
+
+### Affichage de données
+
+Aperçu des variables
+
+```{r}
+plot(mtq)
+```
+
+
+Affichage de la géométrie
+
+```{r, nm=TRUE}
+plot(st_geometry(mtq))
+```
+
+### Joindre des données
+
+
+
+
+
+
+## Les projections
+
+
+## Opérations de géotraitement
+
+### Selection par attributs
+
+
+### Selection spatiale
+
+
+### Extraire des centroides
+```{r centroid, nm=TRUE}
+mtq_c <- st_centroid(mtq)
+plot(st_geometry(mtq))
+plot(st_geometry(mtq_c), add=TRUE, cex=1.2, col="red", pch=20)
+```
+
+
+### Créer une matrice de distances
+
+```{r distance, nm=TRUE}
+mat <- st_distance(x=mtq_c,y=mtq_c)
+mat[1:5,1:5]
+```
+
+### Agréger des polygones
+
+```{r aggreg, nm=TRUE}
+mtq_u <- st_union(mtq)
+plot(st_geometry(mtq), col="lightblue")
+plot(st_geometry(mtq_u), add=T, lwd=2, border = "red")
+```
+
+### Agréger des polygones en fonction d'une variable
+
+```{r aggreg2, nm=TRUE}
+library(dplyr)
+mtq_u2 <- mtq %>% 
+  group_by(STATUT) %>% 
+  summarize(P13_POP=sum(P13_POP))
+plot(mtq_u2["STATUT"], key.pos = NULL)
+```
+
+
+
+### Construire une zone tampon
+
+```{r buffers, nm=TRUE}
+mtq_b <- st_buffer(x = mtq_u, dist = 2000)
+plot(st_geometry(mtq), col="lightblue")
+plot(st_geometry(mtq_u), add=T, lwd=2)
+plot(st_geometry(mtq_b), add=T, lwd=2, border = "red")
+```
+
+
+### Réaliser une intersection 
+
+```{r intersect, nm=TRUE}
+m <- rbind(c(700015,1624212), c(700015,1641586), c(719127,1641586), c(719127,1624212), c(700015,1624212))
+p <- st_sf(st_sfc(st_polygon(list(m))), crs = st_crs(mtq))
+plot(st_geometry(mtq))
+plot(p, border="red", lwd=2, add=T)
+mtq_z <- st_intersection(x = mtq, y = p)
+plot(st_geometry(mtq))
+plot(st_geometry(mtq_z), col="red", border="green", add=T)
+plot(st_geometry(mtq_z))
+```
+
+
+
+### Compter des points dans un polygone
+
+```{r intersect2, nm=TRUE}
+pts <- st_sample(x = mtq, size = 50)
+plot(st_geometry(mtq))
+plot(pts, pch = 20, col = "red", add=TRUE, cex = 1)
+inter <- st_intersects(mtq, pts)
+mtq$nbpts <- sapply(X = inter, FUN = length)
+plot(st_geometry(mtq))
+plot(st_geometry(mtq[mtq$nbpts>2,]), col = "grey", add=TRUE)
+plot(pts, pch = 20, col = "red", add=TRUE, cex = 1)
+```
+
+
+
+### Construire des polygones de Voronoi
+google: "st_voronoi R sf" (https://github.com/r-spatial/sf/issues/474 & https://stackoverflow.com/questions/45719790/create-voronoi-polygon-with-simple-feature-in-r)
+
+```{r voronoi, nm=TRUE}
+mtq_v <- st_voronoi(x = st_union(mtq_c))
+mtq_v <- st_intersection(st_cast(mtq_v), st_union(mtq))
+mtq_v <- st_join(x = st_sf(mtq_v), y = mtq_c, join=st_intersects)
+mtq_v <- st_cast(mtq_v, "MULTIPOLYGON")
+plot(st_geometry(mtq_v), col='lightblue')
+```
+
+
+
+## Géocodage d'adresses
+
+Plusieurs packages permettent de géocoder des adresses.
+
+
+- `photon`
+
+```{r, eval=FALSE}
+# remotes::install_github(repo = 'rCarto/photon')  
+library(photon)
+address <- c("19 rue Michel Bakounine, 29600 Morlaix, France",
+             "8 place Paul Ricoeur, 75013 Paris")
+place <- photon::geocode(address, limit = 1, key = "place", lang = "fr")
+place
+saveRDS(object = place, file = "data/place1.rds")
+```
+
+```{r, echo = FALSE}
+readRDS("data/place1.rds")
+```
+
+- `nominatim`
+
+```{r, eval=FALSE}
+# remotes::install_github("hrbrmstr/nominatim")
+library(nominatim)
+address <- c(URLencode("19 rue Michel Bakounine, 29600 Morlaix, France"),
+             URLencode("8 place Paul Ricoeur, 75013 Paris"))
+place <- osm_geocode(address, 
+            country_codes = "FR", 
+            key = "UneClefMapQuestValide")
+place
+```
+
+```{r, echo = FALSE}
+readRDS("data/place2.rds")
+```
+
+- `banR` (pour des adresses en France)
+
+```{r, eval=FALSE}
+library(banR)
+address <- c("19 rue Michel Bakounine, 29600 Morlaix, France",
+             "8 place Paul Ricoeur, 75013 Paris")
+place <- geocode_tbl(tbl = data.frame(address), adresse = "address")
+place
+```
+
+```{r, echo = FALSE}
+readRDS("data/place3.rds")
+```
+
+
+<!--chapter:end:01-SIG.Rmd-->
+
+```{r knitr2_init, echo=FALSE, cache=FALSE}
+library(knitr)
+## Global options
+options(max.print="90")
+opts_chunk$set(echo=TRUE,
+               cache=TRUE,
+               prompt=FALSE,
+               tidy=FALSE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE,
+               fig.align='center',
+               fig.height=4.8, 
+               fig.width=4, 
+               sm=TRUE)
+opts_knit$set(width=90)
+options(width = 90)
+knit_hooks$set(nm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,0,0))
+  } 
+})
+knit_hooks$set(sm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,1.2,0))
+  } 
+})
+knit_hooks$set(dm = function(before, options, envir){
+  if (before){
+    par(mar=c(5.1,4.1,4.1,2.1))
+  } 
+})
+
+```
+
+
+# Cartographie thématique  {#chapitre2}
+
+
+Nous ne détaillerons pas ici les règles de la cartographie thématique.
+Le lecteur pourra se référer à divers ouvrages de référence : @Bertin67, @Beguin10, @Lambert16
+
+
+
+## Le package `cartography`
+
+Le package `cartography` [@R-cartography] permet de créer et intégrer des cartes thématiques dans sa chaîne de traitements en R. Il permet des représentations cartographiques tels que les cartes en symboles proportionnels, des cartes choroplèthes, des typologies, des cartes de flux ou des cartes de discontinuités. Il offre également des fonctions qui permettent d’améliorer la réalisation de la carte, comme des palettes de couleur, des éléments d’habillage (échelle, flèche du nord, titre, légende…), d’y rattacher des labels ou d’accéder à des APIs cartographiques.
+
+Pour utiliser aisément ce package, plusieurs sources d'intérêts peuvent être consultées :
+
+* La documentation du package accessible directement dans R :
+```{r, eval = FALSE}
+?cartography
+```
+* La [vignette](https://CRAN.R-project.org/package=cartography/vignettes/cartography.html){target="_blank"} associée au package présente des exemples de scripts 
+```{r, eval = FALSE}
+vignette("cartography")
+```
+* Le blog [R Géomatique](https://rgeomatic.hypotheses.org/){target="_blank"} met à disposition ressources et exemples liés au package et plus généralement à l'écosystème spatiale de R.  
+
+* La [cheat sheet](http://riatelab.github.io/cartography/vignettes/cheatsheet/cartography_cheatsheet.pdf){target="_blank"} de cartography, qui résume les principales fonctions du package de façon synthétique.   
+
+```{r, echo=FALSE}
+knitr::include_graphics("img/cheat_sheet.png")
+```
+
+
+## Représentations usuelles 
+
+### Carte de symboles proportionnels
+
+
+Plusieurs symboles sont disponibles : cercles, carrés et bars. 
+
+```{r propS}
+library(cartography)
+library(sf)
+# Import des données
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+# Communes
+plot(st_geometry(mtq), col = "lightblue4", border = "lightblue3", 
+     bg = "lightblue1")
+# Symboles proportionnels
+propSymbolsLayer(x = mtq, var = "P13_POP", 
+                 legend.title.txt = "Total\npopulation (2013)")
+# Titre
+title(main = "Population en Martinique")
+```
+
+
+### Carte choroplèthe
+
+```{r choro}
+mtq$cagr <- (((mtq$P13_POP / mtq$P08_POP)^(1/4)) - 1) * 100
+choroLayer(x = mtq, var = "cagr", breaks = c(-6.14,-2,-1,0,1,2),
+           col = c("#135D89", "#4D95BA", "#96D1EA", "#FCDACA", "#EC4E49"),
+           legend.title.txt = "Compound annual\ngrowth rate")
+title(main = "Evolution de la population")
+```
+
+## Éléments d'habillage
+Titre, sources, auteur
+
+### Ajuster les marges de la figures
+
+### Flèche nord
+
+### Échelle
+
+```{r layout1}
+plot(st_geometry(mtq), col = "lightblue4", border = "lightblue3", 
+     bg = "lightblue1")
+layoutLayer(title = "Martinique", sources = "IGN", 
+            author = "Giraud & Pécout, 2018", 
+            col ="grey20", coltitle = "red",
+            tabtitle = TRUE, frame = FALSE, scale = NULL)
+north(pos = "topright", col = "red")
+barscale(size = 5, lwd = 1.2, cex = 0.8)
+```
+
+
+```{r labs}
+plot(st_geometry(mtq), col = "darkseagreen3", border = "darkseagreen4",
+     bg = "#A6CAE0")
+labelLayer(x = mtq, txt = "LIBGEO", col= "black", cex = 0.7, font = 4,
+           halo = TRUE, bg = "white", r = 0.1, overlap = FALSE, 
+           show.lines = FALSE)
+```
+
+### Créer un effet crayonné 
+
+```{r pencil}
+library(sf)
+mtq_pencil <- getPencilLayer(x = mtq)
+typoLayer(x = mtq_pencil, var="STATUT", add = FALSE,
+          col = c("aquamarine4", "yellow3","wheat"),
+          legend.values.order = c("Préfecture de région",
+                                  "Sous-préfecture", 
+                                  "Commune simple"),
+          legend.pos = "topright",
+          legend.title.txt = "Status")
+plot(st_geometry(mtq), add = TRUE, ldy=2)
+layoutLayer(title = "Commune Status",
+            author = "TG & HP, 2018",
+            sources = "IGN, 2016",
+            scale = NULL)
+```
+
+
+
+### Ajouter un ombrage à une couche
+
+
+```{r shadow}
+plot(st_geometry(mtq) + c(500, -500), 
+     col = "grey50", border = NA)
+plot(st_geometry(mtq), 
+     col = "darkseagreen3", border = "darkseagreen4", 
+     add = TRUE)
+title("Martinique")
+```
+
+
+
+
+
+## Palettes de couleurs
+
+La fonction `display.carto.all()` permet d'afficher toutes palettes de couleurs disponibles dans `cartography`.
+```{r pa, nm=TRUE}
+display.carto.all(20)
+```
+
+La fonction `display.carto.pal()` permet de détailler une palette de couleurs.
+
+```{r pal1, nm=TRUE}
+display.carto.pal("orange.pal")
+```
+
+La fonction `carto.pal()` permet de construire une palette de couleur.
+Il est possible de créer des palettes associant 2 couleurs. 
+
+```{r pal2,  fig.height=3, nm=TRUE}
+mypal <- carto.pal(pal1 = "wine.pal", n1 = 5, pal2 = "green.pal", n2 = 4)
+image(1:9, 1, as.matrix(1:9), col=mypal, xlab = "", ylab = "", xaxt = "n", 
+      yaxt = "n",bty = "n")
+```
+
+## Discrétisations
+
+La fonction `getBreaks()` met à disposition les méthodes de discrétisations de variables classique : quantiles, moyenn/écart-type, amplitudes égales, moyennes emboitées, Fisher-Jenks, géométrique ...
+
+```{r discr2, fig.height=3, fig.width=5, dm=FALSE}
+var <- mtq$cagr
+moy <- mean(var)
+med <- median(var)
+std <- sd(var)
+# Quantile intervals
+breaks <- getBreaks(v = var, nclass = 6, method = "quantile")
+hist(var, probability = TRUE, breaks = breaks, main="quantiles",
+     col = carto.pal(pal1 = "wine.pal",3, "green.pal", 3))
+rug(var)
+abline(v = med, col = "blue", lwd = 3)
+```
+
+
+
+```{r discr3,  fig.height=3, fig.width=5, dm=TRUE}
+
+# Mean and standard deviation (msd)
+breaks <- getBreaks(v = var, method = "msd", k = 1, middle = TRUE)
+hist(var, probability = TRUE, breaks = breaks, main="moyenne / écart-type",
+     col = carto.pal(pal1 = "wine.pal",3 , "green.pal", 2, middle = TRUE))
+rug(var)
+abline(v = moy, col = "red", lwd = 3)
+abline(v = moy + 0.5 * std, col = "blue", lwd = 3)
+abline(v = moy - 0.5 * std, col = "blue", lwd = 3)
+```
+
+
+
+## Combinaisons
+
+
+```{r choroprop}
+plot(st_geometry(mtq), col = "lightblue4",
+     border = "lightblue3", bg = "lightblue1")
+propSymbolsChoroLayer(x = mtq, var= "P13_POP",
+                      legend.var.title.txt = "Total\npopulation (2013)",
+                      var2 = "cagr", legend.var.pos = "bottomleft",
+                      breaks = c(-6.14,-2,-1,0,1,2),
+                      col = c("#135D89", "#4D95BA", "#96D1EA", "#FCDACA", "#EC4E49"),
+                      legend.var2.title.txt = "Compound annual\ngrowth rate")
+# Title
+title(main = "Evolution de la population")
+```
+
+
+
+## Les données OSM
+
+[OpenStreetMap (OSM)](https://www.openstreetmap.org){target="_blank"} est un projet de cartographie participative qui a pour but de constituer une base de données géographiques libre à l'échelle mondiale. OpenStreetMap vous permet de voir, modifier et utiliser des données géographiques dans le Monde entier. En résumé, c'est comme Google Maps, mais en mieux...
+
+
+### Données vectorielles
+
+
+```{r, eval=FALSE}
+library("osmdata")
+q <- opq(bbox=st_bbox(st_transform(mtq,4326)))
+q1 <- add_osm_feature(opq = q, key = 'amenity', 
+                      value = "restaurant" )
+res <- osmdata_sf(q1)
+restau1  <- res$osm_points[!is.na(res$osm_points$amenity),]
+restau2 <- res$osm_polygons
+st_geometry(restau2) <- st_centroid(st_geometry(restau2))
+
+q1 <- add_osm_feature(opq = q, key = 'amenity', 
+                      value = "fast_food" )
+res <- osmdata_sf(q1)
+fast1  <- res$osm_points[!is.na(res$osm_points$amenity),]
+fast2 <- res$osm_polygons
+st_geometry(fast2) <- st_centroid(st_geometry(fast2))
+
+q1 <- add_osm_feature(opq = q, key = 'amenity', 
+                      value = "cafe" )
+res <- osmdata_sf(q1)
+cafe1  <- res$osm_points[!is.na(res$osm_points$amenity),]
+cafe2 <- res$osm_polygons
+st_geometry(cafe2) <- st_centroid(st_geometry(cafe2))
+
+osm_restau <- rbind(restau1[, c("osm_id", "name")], restau2[, c("osm_id", "name")], 
+                    fast1[, c("osm_id", "name")], fast2[, c("osm_id", "name")], 
+                    cafe1[, c("osm_id", "name")], cafe2[, c("osm_id", "name")])
+osm_restau <- st_transform(osm_restau, st_crs(mtq))
+
+plot(osm_restau)
+
+plot(mtq$geometry)
+plot(osm_restau$geometry,add=T, pch=20, col = "#330A5FFF", cex = 0.5)
+labelLayer(osm_restau, txt = "name", overlap = F,show.lines = F, )
+
+# st_write(osm_restau, dsn = "data/resto.gpkg")
+
+
+```
+
+
+
+### Données raster
+
+```{r osm}
+tiles <- getTiles(x = mtq, type = "osm", crop=T, zoom = 11)
+tilesLayer(tiles)
+plot(st_geometry(mtq), add=T)
+```
+
+
+## Création de cartons
+
+Le package `mapinsetr`[@R-mapinsetr] est dédié à la crétion de cartons cartographiques. Il 
+n'est pas sur le CRAN pour l'instant, mais on peut l'installer via le package `remotes`. 
+
+```{r, eval=FALSE}
+remotes::install_github("riatelab/mapinsetr")
+```
+
+`mapinsetr` permet de découper, redimensionner et déplacer une zone d'un fond de carte.
+
+
+```{r inset1}
+library(mapinsetr)
+library(cartography)
+library(sf)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+resto <- st_read("data/resto.gpkg", quiet = TRUE)
+
+
+# Création d'un masque
+box_FDF <- create_mask(bb = c(706880, 1615030,
+                              708650, 1616870), 
+                       prj = st_crs(mtq))
+
+# Découpage, déplacement et redimentionnement des couches sous le masque
+zbox_FDF <- move_and_resize(x = box_FDF, 
+                            mask = box_FDF, 
+                            xy = c(689000, 1603000), 
+                            k = 7)
+zmtq_FDF <- move_and_resize(x = mtq, 
+                            mask = box_FDF, 
+                            xy = c(689000, 1603000), 
+                            k = 7)
+zresto_FDF <- move_and_resize(x = resto, 
+                              mask = box_FDF, 
+                              xy = c(689000, 1603000), 
+                              k = 7)
+
+# Affichage de la carte et des couhes crées
+plot(st_geometry(mtq), col = "lightblue4", border = "lightblue3", 
+     bg = "lightblue1")
+plot(st_geometry(resto), add=T, pch=20, col = "#330A5FFF", cex = 0.5)
+plot(st_geometry(box_FDF), border = "red", add = T, lwd = 2)
+plot(st_geometry(zmtq_FDF), col = "lightblue4", border = "lightblue3", add=TRUE)
+plot(st_geometry(zresto_FDF), add=TRUE, pch=20, col = "#330A5FFF", cex = 0.5)
+plot(st_geometry(zbox_FDF), border = "red", add = T, lwd = 2)
+title("Carte initiale + couches créées")
+
+# Création de couches unqiues comprenant le zoom
+resto <- inset_rbinder(l = list(resto, zresto_FDF))
+mtq <- inset_rbinder(l = list(mtq, zmtq_FDF))
+box <- inset_rbinder(l = list(box_FDF, zbox_FDF))
+plot(st_geometry(mtq), col = "lightblue4", border = "lightblue3", 
+     bg = "lightblue1")
+plot(st_geometry(resto), add=T, pch=20, col = "#330A5FFF", cex = 0.5)
+plot(st_geometry(box), border = "red", add = T, lwd = 2)
+title("Carte finale avec carton")
+```
+
+
+<!--chapter:end:02-carto1.Rmd-->
+
+```{r knitr3_init, echo=FALSE, cache=FALSE}
+library(knitr)
+## Global options
+options(max.print="90")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=FALSE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=90)
+options(width = 90)
+knit_hooks$set(nm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,0,0))
+  } 
+})
+knit_hooks$set(sm = function(before, options, envir){
+  if (before){
+    par(mar=c(0,0,1.2,0))
+  } 
+})
+```
+
+
+
+# Cartographie thématique avancée  {#chapitre3}
+
+
+## Cartographie interactive
+
+Le package `mapview` [@R-mapview] utilise le package `leaflet` [@R-leaflet] basé sur la librairie javascript Leaflet [@JS-Leaflet] pour créer des cartes interactives. La création de carte est assez aisée, la documentation est un peu dense. 
+
+
+```{r}
+library(sf)
+library(mapview)
+mtq <- st_read("data/martinique.shp", quiet=TRUE)
+resto <- st_read(dsn = "data/resto.gpkg", quiet = TRUE)
+
+mapview(resto, map.types = "OpenStreetMap", col.regions = "#940000", 
+        label = resto$name,alpha.regions=90,
+        color = "white", legend = TRUE, layer.name = "Resto", 
+        homebutton = FALSE, lwd = 0.5) +
+  mapview(mtq, col.regions = "#000094", color = "white", legend = TRUE, 
+          label = mtq$LIBGEO, alpha.regions= 0.2, map.types = "OpenStreetMap",
+          lwd = 0.5, layer.name = "Communes",  homebutton = FALSE)
+```
+
+
+
+
+## Les cartogrammes
+
+>L’anamorphose classique est une représentation des États (ou de mailles quelconques) par **des rectangles ou des polygones quelconques** en fonction d’une **quantité** qui leur est rattaché. (...)
+On s’efforce de **garder l’arrangement général** des mailles ou la silhouette du continent."  
+@Brunet93
+
+Nous aborderons ici 3 types d'anamorphoses ou cartogrammes :
+
+- Les cartogrammes de Dorling [@Dorling96]
+- Les cartogrammes non contigus [@Olson76]
+- Les cartogrammes contigus [@Dougenik85]
+
+Vous trouverez un cours complet sur les anamorphoses ici : [Les anamorphoses cartographiques](https://neocarto.hypotheses.org/366){target="_blank"} [@Lambert15].
+
+Pour réaliser les cartogrammes nous utilisons le package `cartogram` [@R-cartogram].
+
+### Les cartogrammes de Dorling
+
+Les territoires sont représentés par des figurés (cercles, des carrés ou des rectangles) ne se recouvrant pas dont les surfaces sont proportionnelle à une variable. Les positions des figurés sont définie selon les positions de départ. 
+
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/dorling.png")
+```
+[@McCormick07]
+
+```{block2, type='rmdmoins'}
+On identifie assez mal l'espace.  
+On peut nommer les cercles pour se repérer et/ou s'aider de la couleur pour faire apparaitre des clusters et mieux identifier les blocks géographiques.    
+```
+
+```{block2, type='rmdplus'}
+La perception des quantités est très bonne.   
+Les tailles de cercles sont vraiment comparables.    
+```
+
+```{r dorling, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=6, fig.height=6, nm=TRUE, cache=TRUE, result='hide'}
+library(cartography)
+library(cartogram)
+library(sf)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+mtq_dorling <- cartogram_dorling(x = mtq, weight = "P13_POP", k = 12) 
+plot(st_geometry(mtq_dorling), col = "#940000", border= "white", bg = "lightblue")
+labelLayer(x = mtq_dorling, txt = "LIBGEO", overlap = FALSE, show.lines = FALSE, 
+           halo = TRUE, r = .15)
+```
+
+
+
+
+
+
+### Les cartogrammes non continus
+
+La taille des polygones est proportionnelle à une variable. L'agencement des polygones les uns par rapport aux autres est conservée. La forme des polygones est ressemblante. 
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/nccartogram.png")
+```
+[@Cauvin13]
+
+```{block2, type='rmdmoins'}
+La topologie des régions est perdue.
+```
+
+```{block2, type='rmdplus'}
+La conservation de la forme des polygones est optimale.
+```
+
+```{r olson, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=4, fig.height=4.8, nm=TRUE, cache=TRUE, result='hide'}
+library(cartography)
+library(cartogram)
+library(sf)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+mtq_ncont <- cartogram_ncont(x = mtq, weight = "P13_POP", k = 1.5) 
+plot(st_geometry(mtq), col = NA, border = "white", lwd = 0.5, bg = "lightblue")
+plot(st_geometry(mtq_ncont), col = "#940000", border= "white", add=TRUE)
+```
+
+
+
+### Les cartogrammes continus
+
+
+La taille des polygones est proportionnelle à une variable. L'agencement des polygones les uns par rapport aux autres est conservée. Pour conserver la contiguité, la forme des polygones est fortement transformée.  
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/cartogram.jpg")
+```
+[@Paull16]
+
+```{block2, type='rmdmoins'}
+La forme des polygones est fortement distordue.
+```
+
+```{block2, type='rmdplus'}
+C'est une “vraie carte de géographie” : la topologie et la contiguité sont conservées.
+```
+
+```{r dougenik, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=4, fig.height=4.8, nm=TRUE, cache=TRUE, result='hide'}
+library(cartography)
+library(cartogram)
+library(sf)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+# transformation POLYGON => MULTIPOLYGON
+mtq <- st_cast(mtq, "MULTIPOLYGON")
+mtq_cont <- cartogram_cont(x = mtq, weight = "P13_POP", prepare = "none") 
+plot(st_geometry(mtq_cont), col = "#940000", border= "white", bg = "lightblue")
+```
+
+
+### Forces et faiblesses des cartogrammes
+
+Les cartogrammes sont des représentations cartographiques perçues comme **innovante** (bien que la methode date de 40 ans). Ces images très généralisées rendent bien compte des **quantités** et des **gradiants**. Ce sont de vraies images de **communication** qui **provoquent**, suscitent **l’intérêt**, véhiculent un **message** fort, **interpellent**.  
+
+Mais les cartogrammes induisent une perte des **repères visuels** (difficile de retrouver son pays, ou sa région sur la carte), demandent un **effort de lecture** qui peut être important et ne permettent pas de **gérer des données manquantes**.   
+
+
+
+## Les grilles régulières
+
+La méthode du carroyage consiste à découper l’espace géographique en un maillage formé de carrés réguliers dans une projection donnée. La donnée est répartie sur ce quadrillage régulier au prorata de la surface représentée. Le quadrillage permet ainsi de s’affranchir des mailles administratives.
+
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/caromet.png")
+```
+
+```{r, echo=FALSE, fig.align='center'}
+knitr::include_graphics(c("img/pregrid.png", "img/grid.png"))
+```
+
+```{block2, type='rmdmoins'}
+Ces représentation induisent une perte de précision. Les maillages produit n'ont pas de signification. La version simple (les valeurs sont redistribuées au prorata de la surface), implique une equirépartition du phénomène dans chaque unités. 
+```
+
+```{block2, type='rmdplus'}
+La comparaison de maillages différents, à plusieurs dates ou de différentes sources est rendue possible. 
+```
+
+La fonction `getGridLayer()` du package `cartography` permet de construire ces grilles régulières.
+
+
+```{r grid, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=4, fig.height=4.8, nm=TRUE, cache=TRUE, result='hide'}
+library(sf)
+library(cartography)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+# Plot dentsity of population 
+mtq$dens <- mtq$P13_POP / (st_area(mtq) / (1000 * 1000)) 
+bks <- getBreaks(v = mtq$dens, method = "q6")
+cols <- carto.pal(pal1 = "taupe.pal", n1 = 6)
+choroLayer(x = mtq, var = "dens", breaks = bks, 
+           border = "burlywood3", col = cols, 
+           legend.pos = "topright", legend.values.rnd = 1,
+           legend.title.txt = "Densité de population\n(hab/km2)")
+
+mygrid <- getGridLayer(x = mtq, cellsize = 3000 * 3000, 
+                       type = "hexagonal", var = "P13_POP")
+## conversion from square meter to square kilometers
+mygrid$densitykm <- mygrid$P13_POP / (mygrid$gridarea / (1000 * 1000)) 
+choroLayer(x = mygrid, var = "densitykm", breaks = bks,
+           border = "burlywood3", col = cols, 
+           legend.pos = "topright", legend.values.rnd = 1,
+           legend.title.txt = "Densité de population\n(hab/km2)")
+plot(st_geometry(mtq), lwd = 0.2, add=TRUE, border = "#ffffff75")
+
+```
+
+
+
+## Les cartes de discontinuités
+
+Ce type de représentation permet de souligner cartographiquement les discontinuités territoriales d'un phénomène.  L'accent est porter sur ce qui distingue des territoires. Pour chaque frontière nous calculons le rapports ou la différence des valeurs des polygones de part et d'autre. Puis nous représentons la frontière par un figuré d'autant plus épais que la différence est forte. Il est souvent bénéfique de coupler ce type de représentation à une représentation choroplèthe (pour comprendre le sens des discontinuités).
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/discmet.png")
+```
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/disc2.png")
+```
+
+```{block2, type='rmdmoins'}
+Ces cartes ne sont pas évidentes à paramétrer. Le choix des critères (seuil, type de différences...) influence fortement la représentation. En fonction du maillage utilisé la lisibilité de la carte peut être faible. 
+```
+
+```{block2, type='rmdplus'}
+Ces représentations sont très puissantes pour montrer les inégalités. 
+```
+
+
+La fonctions `getBorder()` du package `cartography` permet de construire une couche des frontières terrestres. La fonction `discLayer()` permet d'afficher les discontinuités. 
+
+```{r disc, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=4, fig.height=4.8, nm=TRUE, cache=TRUE, result='hide'}
+library(sf)
+library(cartography)
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+# Get borders
+mtq_bord <- getBorders(x = mtq)
+# Plot polygons
+plot(st_geometry(mtq), border = NA, col = "grey60")
+# Plot borders
+plot(st_geometry(mtq_bord), 
+     col = sample(x = rainbow(nrow(mtq_bord))), 
+     lwd = 3, add = TRUE)
+```
+
+```{r disc2, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=5, fig.height=6, nm=TRUE, cache=TRUE, result='hide'}
+mtq$emp_share <- 100 * mtq$C13_CS5/mtq$C13_POP
+# Plot this share
+choroLayer(x = mtq, var = "emp_share", border = NA, 
+           method = 'quantile', nclass = 6, 
+           legend.values.rnd = 1, legend.pos = "topright", 
+           legend.title.txt = "Part des employés\ndans la population agée\nde 15 ans et plus" )
+# Plot discontinuities
+discLayer(x = mtq_bord, df = mtq,
+          var = "emp_share", col="darkred", nclass=3,
+          method="quantile", threshold = 0.5, sizemin = 0.5,
+          sizemax = 8, type = "abs", legend.values.rnd = 1,
+          legend.title.txt = "Discontinuités\n(différences absolues)",
+          legend.pos = "bottomleft", add=TRUE)
+```
+
+
+
+## Le lissage spatial
+
+L'idée principale du lissage est de filtrer l’information pour révéler des structures spatiales sous-jacentes. C'est un ensemble de méthodes qui consistent à affecter aux points que l'on observe une valeur prenant en compte les valeurs de leur voisinnage. 
+Il existe plusieurs méthodes de lissage (kde, potentiels...) plus ou moins paramétrables. 
+Cette méthode permet de passer représentations ponctuelles à une représentation continu
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/liss1.png")
+```
+
+```{r, fig.align='center', echo=FALSE}
+knitr::include_graphics("img/liss2.png")
+```
+
+```{block2, type='rmdmoins'}
+Il est difficile de paramétrer correctement les fonctions de lissages.   
+Elles doivent s'appuyer sur des hypothèses de comportement dans l'espace.   
+La compréhension par un public large n'est pas évidente, il faut alors simplifier les légendes, la présentation de la méthode. 
+```
+```{block2, type='rmdplus'}
+Permet de faire ressortir des phénomènes spatiaux sous-jacents invisibles directement.   
+Les cartes produites attirent l'oeil par leur originalité.   
+Cette méthode permet de passer d'une représentation ponctuelle ou discontinue (dans un maillage) à une représentation continue s'affranchissant des maillages existants. 
+```
+
+### KDE
+
+```{r kde, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, fig.align="center",fig.width=4, fig.height=4.8, sm=TRUE, cache = TRUE, results='hide'}
+library(sf)
+library(spatstat)
+library(maptools)
+library(raster)
+# Import des données
+mtq <- st_read("data/martinique.shp", quiet = TRUE)
+resto <- st_read(dsn = "data/resto.gpkg", quiet = TRUE)
+sigma = 1000
+res = 200
+# Define an observation window
+w <- as.owin(as(mtq, "Spatial"))
+# sf to coords
+pts <- st_coordinates(resto)
+# Coords to ppp
+p <- ppp(pts[,1], pts[,2], window=w)
+# Compute KDE
+dens <- density.ppp(p, sigma = sigma, eps = res)
+# Image to raster (+ proj & km2)
+result <- raster(dens, crs = st_crs(resto)[[2]]) * 1000000
+# compute breaks
+bks <- unique(getBreaks(values(result), nclass = 8, method = "arith"))
+# Color ramp
+cols <- mapview::mapviewGetOption("raster.palette")(10)[2:9]
+# Plot the map
+plot(st_geometry(mtq), col = "lightblue4", border = "lightblue3", 
+     bg = "lightblue1")
+plot(result, breaks = bks, col=cols, add = T,legend=F)
+plot(resto$geom, add=T, pch = 20, cex = 0.01, col = "white")
+legendChoro(pos = "topright",
+            title.txt = "Densité\nde restaurants\n(par km2)",
+            breaks = bks, nodata = FALSE,values.rnd = 1,
+            col = cols)
+layoutLayer(title = "DKE RESTO", scale = 5,
+            tabtitle = TRUE, frame = FALSE,
+            author = "TG & HP", 
+            sources = "IGN & OSM") 
+```
+
+
+
+
+### Stewart
+
+
+
+[Vignette du package SpatialPosition](https://cran.r-project.org/web/packages/SpatialPosition/vignettes/StewartExample.html){target="_blank"}
+
+
+
+
+
+
+
+
+## 3D
+### linemap
+```{r lines, echo=TRUE, eval=TRUE, prompt=FALSE, message=FALSE, results='hide', fig.align="center",fig.width=8, fig.height=5.75, nm=TRUE, cache=TRUE}
+library(linemap)
+library(sf)
+data("popOcc")
+data("occitanie")
+opar <- par(mar=c(0,0,0,0), bg = "ivory2")
+bb <- st_bbox(occitanie)
+plot(st_geometry(occitanie), col="ivory1", border = NA)
+linemap(x = popOcc, var = "pop", k = 2.5, threshold = 50,
+        col = "ivory1", border = "ivory4", lwd = 0.6, add = TRUE)
+text(x = bb[1], y = bb[4],adj = c(0,1),
+     labels = "Répartition de la\npopulation\nen Occitanie",  
+     col = "ivory4", font = 2,  cex = 1.8)
+# add sources
+mapsources <-"Timothée Giraud\nR 3.4.1, cartography 2.0.0, linemap 0.1.0\nDonnées carroyées à 1 kilomètre, INSEE 2010"
+text(x = bb[3], y = bb[2],labels = mapsources,  
+     col = "ivory4", font = 3, adj = c(1,0), cex = 0.6 )
+
+```
+
+
+
+<!--chapter:end:03-carto2.Rmd-->
+
+# `sessionInfo()`
+
+```{r, echo=FALSE}
+sessionInfo()
+```
+
+
+<!--chapter:end:04-sessionInfo.Rmd-->
+
+`r if (knitr:::is_html_output()) '
+# References {-}
+'`
+
+<!--chapter:end:05-references.Rmd-->
+
